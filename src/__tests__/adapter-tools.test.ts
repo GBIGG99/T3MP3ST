@@ -217,3 +217,47 @@ describe('buildAdapterTools', () => {
     expect(tools.map(t => t.name)).not.toContain(toolNameFor(adapter('nmap')));
   });
 });
+
+describe('source / supply-chain scanners run a real invocation (not `<binary> <target>`)', () => {
+  // Each entry: [adapter id, argv for `path: 'src'`]. Without bespoke templates these all fell
+  // through to DEFAULT_TEMPLATE and spawned `['src']` (or `['']` with no path) — a broken scan.
+  const CASES: Array<[string, string[]]> = [
+    ['semgrep', ['scan', '--config', 'auto', '--json', 'src']],
+    ['gitleaks', ['detect', '--source', 'src', '--report-format', 'json', '--redact', '--no-banner']],
+    ['trufflehog', ['filesystem', 'src', '--json', '--no-update']],
+    ['trivy', ['fs', '--format', 'json', 'src']],
+    ['syft', ['dir:src', '-o', 'cyclonedx-json']],
+    ['grype', ['dir:src', '-o', 'json']],
+    ['checkov', ['-d', 'src', '-o', 'json']],
+  ];
+
+  it.each(CASES)('%s builds its real scanner argv for an explicit path', async (id, expected) => {
+    const deps = makeDeps();
+    await mint(id, deps).handler(ctx({ path: 'src' }));
+    expect(deps.spawns[0]).toEqual(expected);
+  });
+
+  it.each(CASES)('%s defaults to the working dir "." when no path is given', async (id) => {
+    const deps = makeDeps();
+    await mint(id, deps).handler(ctx({}));
+    // The path slot resolves to "." — assert "." is present and the argv is more than a bare target.
+    expect(deps.spawns[0].some(a => a === '.' || a === 'dir:.')).toBe(true);
+    expect(deps.spawns[0].length).toBeGreaterThan(1);
+  });
+
+  it('never inherits an http(s) mission target as a scan path (falls back to ".")', async () => {
+    const deps = makeDeps();
+    // A networked mission address must not become `semgrep scan --config auto --json https://x` —
+    // that is not a filesystem path. scanPath rejects it and falls back to ".".
+    await mint('semgrep', deps).handler(ctx({ target: 'https://victim.example' }));
+    expect(deps.spawns[0]).toEqual(['scan', '--config', 'auto', '--json', '.']);
+  });
+
+  it('refuses an option-looking path (leading "-" would be a scanner flag) — no spawn', async () => {
+    const deps = makeDeps();
+    // The factory's option-looking-target guard fires before argv is built, so the scanner never runs.
+    const result = await mint('trivy', deps).handler(ctx({ path: '--output=/etc/x' }));
+    expect(result.success).toBe(false);
+    expect(deps.spawns.length).toBe(0);
+  });
+});

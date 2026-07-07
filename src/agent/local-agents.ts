@@ -137,7 +137,7 @@ const SPECS: AgentSpec[] = [
     invokeHint: 'hermes -z "<prompt>"  (--yolo only if T3MP3ST_HERMES_YOLO=1)',
     versionArgs: ['--version'],
     parseVersion: (o) => (o.match(/v([\d]+\.[\d]+(\.[\d]+)?)/)?.[1]) || (o.match(/[\d]+\.[\d]+(\.[\d]+)?/) || ['?'])[0],
-    authArtifacts: ['~/.hermes/.env'],
+    authArtifacts: ['~/.hermes/.env', "~/.hermes/auth.json"],
     oneShot: (p, m) => ['-z', p, ...(hermesYoloEnabled() ? ['--yolo'] : []), ...(m ? ['-m', m] : [])],
   },
 ];

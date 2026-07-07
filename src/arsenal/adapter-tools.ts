@@ -79,6 +79,21 @@ const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
 /**
+ * Resolve the filesystem PATH a source/supply-chain scanner should run against (semgrep, gitleaks,
+ * trivy, …). These adapters are non-networked and operate on a directory, defaulting to the working
+ * dir (`.`). The subcommand + output flags in each template are HARDCODED — only this path is
+ * tunable, and it is sanitised so it cannot smuggle a flag or an inherited URL past the gate:
+ *   - a leading `-` would be reparsed as a scanner flag (arg injection) → fall back to `.`,
+ *   - an http(s) URL (e.g. a networked mission target inherited via context.target.address) is not a
+ *     scan path → fall back to `.`.
+ */
+const scanPath = (target: string, params: Record<string, unknown>): string => {
+  const p = str(params.path) ?? str(params.target) ?? (target || undefined);
+  if (!p || /^-/.test(p) || /^https?:\/\//i.test(p)) return '.';
+  return p;
+};
+
+/**
  * Per-binary arg templates for the common command-ready adapters. Keyed by `adapter.binary` (the
  * process name), with `adapter.id` also accepted as a fallback key so callers can template by either.
  * Anything not listed here falls back to `DEFAULT_TEMPLATE` (pass the target as a positional arg).
@@ -216,6 +231,47 @@ const ARG_TEMPLATES: Record<string, ArgTemplate> = {
       args.push(target);
       return args;
     },
+  },
+
+  // ── Source / supply-chain scanners (non-networked, operate on a PATH) ───────────────────────────
+  // Without these, each falls through to DEFAULT_TEMPLATE and spawns `<binary> <target>` — which for
+  // a subcommand-driven scanner is a broken invocation (e.g. `semgrep .` never runs a scan, and with
+  // no path it is `semgrep ''`). Templates mirror the catalog `commandHint` and hardcode the
+  // subcommand + machine-readable output flags; the only tunable is the scan path (see scanPath).
+  semgrep: {
+    targetParam: 'path',
+    defaultTimeoutMs: 300_000,
+    build: (target, params) => ['scan', '--config', 'auto', '--json', scanPath(target, params)],
+  },
+  gitleaks: {
+    targetParam: 'path',
+    defaultTimeoutMs: 180_000,
+    build: (target, params) => ['detect', '--source', scanPath(target, params), '--report-format', 'json', '--redact', '--no-banner'],
+  },
+  trufflehog: {
+    targetParam: 'path',
+    defaultTimeoutMs: 300_000,
+    build: (target, params) => ['filesystem', scanPath(target, params), '--json', '--no-update'],
+  },
+  trivy: {
+    targetParam: 'path',
+    defaultTimeoutMs: 300_000,
+    build: (target, params) => ['fs', '--format', 'json', scanPath(target, params)],
+  },
+  syft: {
+    targetParam: 'path',
+    defaultTimeoutMs: 180_000,
+    build: (target, params) => ['dir:' + scanPath(target, params), '-o', 'cyclonedx-json'],
+  },
+  grype: {
+    targetParam: 'path',
+    defaultTimeoutMs: 180_000,
+    build: (target, params) => ['dir:' + scanPath(target, params), '-o', 'json'],
+  },
+  checkov: {
+    targetParam: 'path',
+    defaultTimeoutMs: 180_000,
+    build: (target, params) => ['-d', scanPath(target, params), '-o', 'json'],
   },
 };
 

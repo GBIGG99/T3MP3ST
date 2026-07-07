@@ -23,6 +23,7 @@ export interface TempestSettings {
     anthropic?: string;
     openai?: string;
     xai?: string;
+    local?: string;
   };
 
   // Default LLM settings
@@ -547,7 +548,7 @@ class ConfigManager {
   /**
    * Set an API key for a provider
    */
-  setApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai', key: string): void {
+  setApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai' | 'local', key: string): void {
     const apiKeys = this.config.get('apiKeys');
     apiKeys[provider] = key;
     this.config.set('apiKeys', apiKeys);
@@ -556,8 +557,15 @@ class ConfigManager {
   /**
    * Get an API key for a provider
    */
-  getApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai'): string | undefined {
+  getApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai' | 'local'): string | undefined {
     // First check environment variables (highest priority)
+    // local provider: a self-hosted/OpenAI-compatible server MAY require a bearer
+    // (Zhipu/z.ai, Together, etc.) — accept TEMPEST_LOCAL_API_KEY or provider-specific vars.
+    if (provider === 'local') {
+      const localKey = process.env.TEMPEST_LOCAL_API_KEY?.trim() || process.env.ZAI_API_KEY?.trim() || process.env.ZHIPUAI_API_KEY?.trim();
+      if (localKey) return localKey;
+      return this.config.get('apiKeys')[provider];
+    }
     const envVarMap = {
       openrouter: 'OPENROUTER_API_KEY',
       venice: 'VENICE_API_KEY',
@@ -582,7 +590,7 @@ class ConfigManager {
   /**
    * Check if a provider has a valid API key configured
    */
-  hasApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai'): boolean {
+  hasApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai' | 'local'): boolean {
     const key = this.getApiKey(provider);
     return !!key && key.length > 10;
   }
@@ -590,7 +598,7 @@ class ConfigManager {
   /**
    * Remove an API key
    */
-  removeApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai'): void {
+  removeApiKey(provider: 'openrouter' | 'venice' | 'anthropic' | 'openai' | 'xai' | 'local'): void {
     const apiKeys = this.config.get('apiKeys');
     delete apiKeys[provider];
     this.config.set('apiKeys', apiKeys);
@@ -661,13 +669,16 @@ class ConfigManager {
         actualModel = 'mock-model';
         break;
       case 'local':
-        // Self-hosted, keyless. Defaults to Ollama; point TEMPEST_LOCAL_BASE_URL at
-        // any OpenAI-compatible server (LM Studio :1234/v1, vLLM :8000/v1, llama.cpp)
-        // and TEMPEST_LOCAL_MODEL at the model tag you're serving.
+        // Self-hosted, usually keyless. Defaults to Ollama; point TEMPEST_LOCAL_BASE_URL at
+        // any OpenAI-compatible server (LM Studio :1234/v1, vLLM :8000/v1, llama.cpp, Zhipu/z.ai
+        // /api/paas/v4) and TEMPEST_LOCAL_MODEL at the model tag you're serving.
+        // Some OpenAI-compatible servers require a real bearer (Zhipu, Together, etc.) —
+        // TEMPEST_LOCAL_API_KEY (or a provider-specific env like ZAI_API_KEY) provides it.
         baseUrl = process.env.TEMPEST_LOCAL_BASE_URL?.trim() || 'http://localhost:11434/api';
         // 'local-model' is the placeholder id from AVAILABLE_MODELS — treat it as unset so
         // TEMPEST_LOCAL_MODEL (or the llama3 default) wins; a real tag passed in still takes priority.
         actualModel = (model && model !== 'local-model' ? model : undefined) || process.env.TEMPEST_LOCAL_MODEL?.trim() || 'llama3';
+        apiKey = process.env.TEMPEST_LOCAL_API_KEY?.trim() || process.env.ZAI_API_KEY?.trim() || process.env.ZHIPUAI_API_KEY?.trim();
         break;
       default:
         throw new Error(`Unknown provider: ${actualProvider}`);
@@ -829,6 +840,17 @@ OPENAI_API_KEY=
 # xAI API Key
 # Get your key at: https://console.x.ai/
 XAI_API_KEY=
+
+# Local model (Ollama / LM Studio / vLLM / llama.cpp, or any OpenAI-compatible server)
+# Point TEMPEST_LOCAL_BASE_URL at the server root (Ollama default shown below).
+# For an OpenAI-compatible server, use a versioned path: LM Studio :1234/v1,
+# vLLM :8000/v1, or e.g. Zhipu/z.ai /api/paas/v4 — any /vN path speaks the
+# OpenAI wire (/chat/completions, choices[]); otherwise the Ollama native format is used.
+# Most local servers are keyless; if yours requires a bearer (Zhipu, Together, …)
+# set TEMPEST_LOCAL_API_KEY (ZAI_API_KEY / ZHIPUAI_API_KEY are accepted as aliases).
+TEMPEST_LOCAL_BASE_URL=http://localhost:11434/api
+TEMPEST_LOCAL_MODEL=llama3
+TEMPEST_LOCAL_API_KEY=
 `;
     writeFileSync(filePath, template);
   }

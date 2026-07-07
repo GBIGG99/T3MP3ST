@@ -725,9 +725,12 @@ class LocalAdapter implements LLMProviderAdapter {
     return { valid: true };
   }
 
-  // A /v1 base URL means an OpenAI-compatible server (/chat/completions, choices[]).
+  // A versioned base URL (/v1, /v2, /v4, …) means an OpenAI-compatible server
+  // (/chat/completions, choices[]). Many OpenAI-compatible providers version their
+  // API at paths other than /v1 (e.g. Zhipu/z.ai exposes /api/paas/v4), so match any
+  // /vN rather than literally /v1.
   private isOpenAIWire(baseUrl: string): boolean {
-    return /\/v1(\/|$)/.test(baseUrl);
+    return /\/v\d+(\/|$)/.test(baseUrl);
   }
 
   // Inject the Arsenal contract as a system turn when tools are offered, and
