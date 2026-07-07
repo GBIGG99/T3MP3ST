@@ -34,6 +34,7 @@
     "binary:bench": "node scripts/binary-vuln-bench.mjs",
     "keys": "bash scripts/keys.sh",
     "keys:list": "bash scripts/keys.sh list",
+    "openrouter:ping": "node scripts/openrouter-ping.mjs",
     "obsidivm": "node scripts/obsidivm-bridge.mjs",
     "obsidivm:spec": "node scripts/obsidivm-bridge.mjs spec",
     "obsidivm:bench": "node scripts/obsidivm-bench.mjs",
